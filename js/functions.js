@@ -188,7 +188,7 @@ function advanceFrame(seconds){
 	updateBoxes();
 	
 	//console.log((box.weight*.8*Math.cos(lever.rotation.z)).toFixed(1));
-	console.log(guiParams.torque.toFixed(1));
+	//console.log(guiParams.torque.toFixed(1));
 	//console.log(guiParams.netTorque.toFixed(1), guiParams.netTorque);
 }
 
