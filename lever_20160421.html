@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+	<html>
+		<head>
+			<title>LEVER</title>
+			<link rel="stylesheet" href="./css/lever.css">
+			<script src="./js/THREEx.DomEvents.js"></script>
+			<script src="./js/THREEx.WindowResize.js"></script>
+			<script src="./js/three.min.js"></script>
+			<script src="./js/Projector.js"></script>
+			<script src="./js/listeners.js"></script>
+			<script src="./js/dat.gui.min.js"></script>
+			<script src="./js/TrackballControls.js"></script>
+			<script src="./js/functions.js"></script>
+			<script src="./js/CanvasRenderer.js"></script>
+			<script src="./js/Detector.js"></script>
+		</head>
+		<body>
+			<script>
+			
+				var scene = new THREE.Scene();
+				var aspect = window.innerWidth/ window.innerHeight;
+				var camera = new THREE.PerspectiveCamera(100, aspect, .1, 1000);
+				var renderer = Detector.webgl? new THREE.WebGLRenderer(): new THREE.CanvasRenderer();
+				var domEvents = new THREEx.DomEvents(camera, renderer.domElement);
+				var light = [];
+				var x_axis = new THREE.Vector3(1,0,0);
+				var y_axis = new THREE.Vector3(0,1,0);
+				var z_axis = new THREE.Vector3(0,0,1);
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				document.body.appendChild( renderer.domElement );
+				var controls = new THREE.TrackballControls( camera,  renderer.domElement );
+				controls.enabled = false;
+				var windowResize = THREEx.WindowResize(renderer, camera);
+				camera.position.z = 7;
+				var loa,ma,rad; //line of action, moment arm, radial line
+				var box = [];
+				box.weight=0;
+				box.mass =.1;
+				var leverProps={mass:5,len:2,width:.4, vel:0};
+				
+				
+				var gui = new dat.GUI();
+				var guiParams = {
+					orbitControls:false,
+					forceMagnitude:2.5,
+					controlType:"translate",
+					resetControls: function(){
+						controls.reset();
+						camera.position.z = 7;
+						},
+					torqueView:false,
+					bTorqueView: false,
+					maView:false,
+					bMaView:false,
+					loaView:false,
+					bLoaView:false,
+					radView:false,
+					bRadView:false,
+					netTorqueView:false,
+					addbox: function(){addWeight()},
+					popbox: function(){popWeight()},
+					animate:false,
+					resetAnimation: function(){reset()},
+					torque:1.25,
+					bTorque:0,
+					netTorque:1.25,
+					damping:.3,
+					spf:.1 //seconds per frame
+					
+				};
+				var camFolder = gui.addFolder('Camera Controls');
+					var camControls = camFolder.add(guiParams, 'orbitControls').name("Camera Controls");
+					camFolder.add(guiParams, 'resetControls').name("Reset Camera");
+				
+				var forceFolder = gui.addFolder('Force Controls');
+					var fMagControls = forceFolder.add(guiParams, 'forceMagnitude',0,10).name("Force Magnitude [N]").listen();
+					forceFolder.add(guiParams, 'controlType', ['translate','tilt']).name("Control Method");
+				
+				var displayFolder = gui.addFolder('Display');
+				//	var torqueFolder = displayFolder.addFolder('Applied Torque');
+						var torqueDisplay = displayFolder.add(guiParams, 'torqueView').name("Torque");
+						var maDisplay = displayFolder.add(guiParams, 'maView').name("Moment Arm");
+						var loaDisplay = displayFolder.add(guiParams, 'loaView').name("Line of Action");
+						var radDisplay = displayFolder.add(guiParams, 'radView').name("Radial Line");
+					/*var bTorqueFolder = displayFolder.addFolder('Box Torque');
+						var bTorqueDisplay = bTorqueFolder.add(guiParams, 'bTorqueView').name("Torque");
+						var bMaDisplay = bTorqueFolder.add(guiParams, 'bMaView').name("Moment Arm");
+						var bLoaDisplay= bTorqueFolder.add(guiParams,'bLoaView').name("Line of Action");
+						var bRadDisplay= bTorqueFolder.add(guiParams, 'bRadView').name("Radial Line");
+					*/
+					var netTorqueDisplay = displayFolder.add(guiParams, 'netTorqueView').name("Net Torque");
+				var anFolder = gui.addFolder('Animate');
+					anFolder.add(guiParams,'addbox').name("Add Weight");
+					anFolder.add(guiParams, 'popbox').name("Remove Weight");
+					anFolder.add(guiParams, 'animate').name("Animate");
+					anFolder.add(guiParams, 'resetAnimation').name("Reset Animation");
+			//	var valueFolder = gui.addFolder('Torque Values');
+					var torqueValue = gui.add(guiParams, 'torque').name("Applied Torque [Nm]").listen();
+					//var bTorqueValue= valueFolder.add(guiParams, 'bTorque').name("Box Torque [Nm]").listen();
+					var netTorqueValue=gui.add(guiParams, 'netTorque').name("Net Torque [Nm]").listen();
+				
+				
+				light.push(new THREE.PointLight( 0xffffff, 3, 100 ));
+				light[0].position.set( 0,0,-10 );
+				light.push(new THREE.PointLight( 0xffffff, 3, 100 ));
+				light[1].position.set(0,0,10);
+				light.push(new THREE.PointLight( 0xffffff, 3, 100 ));
+				light[2].position.set(5,5,5);
+				light.push(new THREE.PointLight( 0xfcd440, 5, 150));
+				light[3].position.set(45,50,40);
+				scene.add( light[0],light[1], light[2], light[3] );
+								
+				
+				controls.rotateSpeed = 1.0;
+				controls.zoomSpeed = 1.2;
+				controls.panSpeed = 0.8;
+				controls.noZoom = false;
+				controls.noPan = false;
+				controls.staticMoving = false;
+				controls.dynamicDampingFactor = 0.3;
+				
+				
+				var axisHelper = new THREE.AxisHelper(40);
+				//scene.add(axisHelper);
+				
+				controlArrow = [];
+				controlArrow.push(new THREE.Object3D());
+				controlArrow.push(new THREE.Object3D());
+				controlArrowMaterial = new THREE.MeshPhongMaterial({
+						color:0x66ffcc,
+						emissive: 0x66ffcc,
+						//side: THREE.DoubleSide,
+						//shading:THREE.FlatShading
+				});
+				var controlArrowGeom = new THREE.BoxGeometry(.5,.5,.5,1,1,1);
+				var cAPGeom = new THREE.CylinderGeometry(0, .5, .5, 4, false);
+				cAPGeom.translate(0,.5,0);
+				cAPGeom.rotateY(Math.PI/4);
+				controlArrowGeom.merge(cAPGeom );
+				controlArrow[0].add(new THREE.Mesh(controlArrowGeom,controlArrowMaterial));
+				controlArrow[0].translateOnAxis(x_axis, .5);
+				controlArrow[0].translateOnAxis(y_axis, 3);
+				controlArrow[1].add(new THREE.Mesh(controlArrowGeom,controlArrowMaterial));
+				controlArrow[1].translateOnAxis(x_axis,-.5);
+				controlArrow[1].translateOnAxis(y_axis , 3);
+				controlArrow[1].rotation.z = Math.PI/2;
+				controlArrow[0].rotation.z = -Math.PI/2;
+				var cArrows = new THREE.Object3D();
+				for(var i = 0; i <controlArrow.length; i++){
+					cArrows.add(controlArrow[i]);
+				}
+				scene.add(cArrows);
+				
+				
+				var lever = new THREE.Object3D();
+				leverGeom = new THREE.BoxGeometry(5*leverProps.len, .25, 5*leverProps.width, 32);
+				/*leverLineMaterial = new THREE.LineBasicMaterial({
+						color: 0xff0000,
+						transparent: true,
+						opacity: .5
+				});
+				*/
+				leverMeshMaterial = new THREE.MeshPhongMaterial({
+						color:0x1a1aff,
+						emissive: 0x072535,
+						side: THREE.DoubleSide,
+						shading:THREE.FlatShading
+				});
+				//lever.add(new THREE.Line(leverGeom, leverLineMaterial));
+				lever.add(new THREE.Mesh(leverGeom, leverMeshMaterial));
+				//lever.rotation.z= Math.PI/12;
+				scene.add(lever);
+				
+				
+				var forceVect=new THREE.Object3D();
+				var forceGeom = generateForceGeom(guiParams.forceMagnitude);
+				forceMaterial = new THREE.MeshPhongMaterial({
+						color:0xff0000,
+						emissive: 0x072535,
+						side: THREE.DoubleSide,
+						shading:THREE.FlatShading
+					});
+				
+				
+				forceVect.add(new THREE.Mesh(forceGeom, forceMaterial));
+				forceVect.position.setY(.25);
+				scene.add(forceVect);
+				
+				var fulcrum = new THREE.Object3D();
+				/*var fulcrumGeom = new THREE.PolyhedronGeometry(
+					[1,0,1, -1,0,1, 1,1,-1, 1,-1,-1, -1,1,-1, -1,-1,-1],
+					[0,1,5, 5,3,0, 0,3,2, 0,2,4, 4,1,0, 1,4,5, 3,5,4, 4,2,3 ],1
+				);*/
+				var fulcrumGeom = new THREE.CylinderGeometry(.75,.75,5*leverProps.width,3,2);
+				
+				var fulcrumMaterial =  new THREE.MeshBasicMaterial({color:0x8B5A2B});
+				fulcrum.add(new THREE.Mesh(fulcrumGeom, fulcrumMaterial));
+				fulcrum.translateOnAxis(y_axis, -.875);
+				
+				fulcrum.rotation.x = -Math.PI/2;
+				//fulcrum.rotation.z = Math.PI/2;
+				scene.add(fulcrum);
+				
+				
+				
+				var env = new THREE.Object3D();
+				var envGeom = new THREE.BoxGeometry(99,6,99,1,1,1);
+				var envMaterial = new THREE.MeshLambertMaterial({
+					color:0x003311,
+					side:THREE.DoubleSide,
+					//shading:THREE.FlatShading,
+					emissive: 0x001e0a
+					});
+				env.add(new THREE.Mesh(envGeom.translate(0,-4.25,0), envMaterial));
+				var sky = new THREE.Object3D();
+				var skyGeom = new THREE.BoxGeometry(100,100,100,1,1,1);
+				var skyMaterial = new THREE.MeshBasicMaterial({
+					color:0x87CEFF,
+					side:THREE.DoubleSide,
+					shading:THREE.FlatShading
+				});
+				sky.add(new THREE.Mesh(skyGeom, skyMaterial));
+				
+		
+				scene.add(env);
+				scene.add(sky);
+				
+				var torque = new THREE.Object3D();
+				var torqueGeom = generateTorqueGeom(forceVect,lever,fulcrum);
+				var torqueMaterial = new THREE.MeshPhongMaterial({
+						color:0x00ff00,
+						emissive: 0x072535,
+						side: THREE.DoubleSide,
+						shading:THREE.FlatShading
+				});
+				torque.add(new THREE.Mesh(torqueGeom, torqueMaterial));
+				torque.rotation.x = -Math.PI/2;
+				
+				var netTorque = new THREE.Object3D();
+				var netTorqueGeom = generateForceGeom(0).translate(0, -1.5,0);
+				var netTorqueMaterial = new THREE.MeshPhongMaterial({
+						color:0x8a2be2,
+						emissive: 0x072535,
+						side: THREE.DoubleSide,
+						shading:THREE.FlatShading
+				});
+				netTorque.add(new THREE.Mesh(netTorqueGeom,netTorqueMaterial));
+				netTorque.rotation.x = -Math.PI/2;
+				
+				
+				initializeListeners();
+				var render = function(){
+					requestAnimationFrame(render);
+					controls.update();
+					if(guiParams.animate){
+						advanceFrame(guiParams.spf);
+					}
+					renderer.render( scene, camera);
+				};
+				
+				render();
+				
+			</script>
+		</body>
+	</html>
